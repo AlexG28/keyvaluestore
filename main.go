@@ -13,14 +13,6 @@ var store = make(map[string]string)
 var storeMutex = sync.RWMutex{}
 
 func main() {
-
-	storeMutex.Lock()
-
-	store["hello"] = "world"
-	store["general"] = "kenobi"
-
-	storeMutex.Unlock()
-
 	http.HandleFunc("/keys/", func(w http.ResponseWriter, req *http.Request) {
 		key := strings.TrimPrefix(req.URL.Path, "/keys/")
 		if key == "" {
@@ -30,11 +22,11 @@ func main() {
 
 		switch req.Method {
 		case http.MethodPut:
-			put(w, req, key)
+			handlePut(w, req, key)
 		case http.MethodGet:
-			get(w, req, key)
+			handleGet(w, req, key)
 		case http.MethodDelete:
-			delete(w, req, key)
+			handleDelete(w, req, key)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -45,7 +37,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func put(w http.ResponseWriter, req *http.Request, key string) {
+func handlePut(w http.ResponseWriter, req *http.Request, key string) {
 
 	body, err := io.ReadAll(req.Body)
 
@@ -66,7 +58,7 @@ func put(w http.ResponseWriter, req *http.Request, key string) {
 	w.WriteHeader(http.StatusOK)
 
 }
-func get(w http.ResponseWriter, req *http.Request, key string) {
+func handleGet(w http.ResponseWriter, _ *http.Request, key string) {
 	storeMutex.RLock()
 	defer storeMutex.RUnlock()
 
@@ -85,10 +77,18 @@ func get(w http.ResponseWriter, req *http.Request, key string) {
 	}
 
 }
-func delete(w http.ResponseWriter, req *http.Request, key string) {
-	if req.Method != http.MethodDelete {
-		w.WriteHeader(http.StatusMethodNotAllowed) // find exact error
+func handleDelete(w http.ResponseWriter, _ *http.Request, key string) {
+	storeMutex.RLock()
+	defer storeMutex.RUnlock()
+
+	_, found := store[key]
+
+	if !found {
+		http.Error(w, "key not found", http.StatusNotFound)
+		return
 	}
 
-	fmt.Fprintf(w, "delete\n")
+	delete(store, key)
+
+	w.WriteHeader(http.StatusOK)
 }
