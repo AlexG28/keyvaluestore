@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -20,32 +21,52 @@ func main() {
 
 	storeMutex.Unlock()
 
-	// http.HandleFunc("/keys/", put)
-	http.HandleFunc("/keys/", get)
-	// http.HandleFunc("/keys/", delete)
+	http.HandleFunc("/keys/", func(w http.ResponseWriter, req *http.Request) {
+		key := strings.TrimPrefix(req.URL.Path, "/keys/")
+		if key == "" {
+			http.Error(w, "can't operate on empty key", http.StatusBadRequest)
+			return
+		}
+
+		switch req.Method {
+		case http.MethodPut:
+			put(w, req, key)
+		case http.MethodGet:
+			get(w, req, key)
+		case http.MethodDelete:
+			delete(w, req, key)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+	})
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func put(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPut {
-		w.WriteHeader(http.StatusMethodNotAllowed) // find exact error
+func put(w http.ResponseWriter, req *http.Request, key string) {
+
+	body, err := io.ReadAll(req.Body)
+
+	if err != nil {
+		http.Error(w, "can't read body", http.StatusBadRequest)
+		return
 	}
 
-	fmt.Fprintf(w, "delete\n")
+	defer req.Body.Close()
+
+	val := string(body)
+
+	storeMutex.Lock()
+	defer storeMutex.Unlock()
+
+	store[key] = val
+
+	w.WriteHeader(http.StatusOK)
 
 }
-func get(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	key := strings.TrimPrefix(req.URL.Path, "/keys/")
-	if key == "" {
-		http.Error(w, "can't operate on empty key", http.StatusBadRequest)
-		return
-	}
-
+func get(w http.ResponseWriter, req *http.Request, key string) {
 	storeMutex.RLock()
 	defer storeMutex.RUnlock()
 
@@ -64,7 +85,7 @@ func get(w http.ResponseWriter, req *http.Request) {
 	}
 
 }
-func delete(w http.ResponseWriter, req *http.Request) {
+func delete(w http.ResponseWriter, req *http.Request, key string) {
 	if req.Method != http.MethodDelete {
 		w.WriteHeader(http.StatusMethodNotAllowed) // find exact error
 	}
