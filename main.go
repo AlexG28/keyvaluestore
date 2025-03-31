@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -9,27 +12,59 @@ import (
 )
 
 func main() {
-	http.HandleFunc("/keys/", func(w http.ResponseWriter, req *http.Request) {
-		key := strings.TrimPrefix(req.URL.Path, "/keys/")
+	thisPort := *(flag.Int("myport", 8080, "Current instance port"))
+	otherPort := *(flag.Int("otherport", 8081, "Other instance port"))
+
+	flag.Parse()
+
+	http.HandleFunc("/final/", func(w http.ResponseWriter, req *http.Request) {
+		key := strings.TrimPrefix(req.URL.Path, "/final/")
 		if key == "" {
 			http.Error(w, "can't operate on empty key", http.StatusBadRequest)
 			return
 		}
 
-		switch req.Method {
-		case http.MethodPut:
-			handlePut(w, req, key)
-		case http.MethodGet:
-			handleGet(w, req, key)
-		case http.MethodDelete:
-			handleDelete(w, req, key)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+		handlerMux(w, req, key)
 	})
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	http.HandleFunc("/keys/", func(w http.ResponseWriter, req *http.Request) {
+		key := strings.TrimPrefix(req.URL.Path, "/keys/")
+
+		if key == "" {
+			http.Error(w, "can't operate on empty key", http.StatusBadRequest)
+			return
+		}
+
+		hash := sha256.Sum224([]byte(key))
+		hashInt := binary.BigEndian.Uint16(hash[:2])
+
+		destination := hashInt % 2
+
+		if destination == 0 {
+			handlerMux(w, req, key)
+		} else {
+			fmt.Printf("shit goes to port: %v\n", otherPort)
+		}
+
+		fmt.Printf("val: %v\n", hashInt)
+	})
+
+	ports := fmt.Sprintf(":%v", thisPort)
+
+	log.Fatal(http.ListenAndServe(ports, nil))
+}
+
+func handlerMux(w http.ResponseWriter, req *http.Request, key string) {
+	switch req.Method {
+	case http.MethodPut:
+		handlePut(w, req, key)
+	case http.MethodGet:
+		handleGet(w, req, key)
+	case http.MethodDelete:
+		handleDelete(w, req, key)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func handlePut(w http.ResponseWriter, req *http.Request, key string) {
@@ -45,6 +80,7 @@ func handlePut(w http.ResponseWriter, req *http.Request, key string) {
 
 	w.WriteHeader(http.StatusOK)
 }
+
 func handleGet(w http.ResponseWriter, _ *http.Request, key string) {
 	value, err := Get(key)
 
@@ -61,6 +97,7 @@ func handleGet(w http.ResponseWriter, _ *http.Request, key string) {
 	}
 
 }
+
 func handleDelete(w http.ResponseWriter, _ *http.Request, key string) {
 	err := Delete(key)
 	if err != nil {
